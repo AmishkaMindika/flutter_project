@@ -2,13 +2,13 @@ from pydantic import BaseModel, EmailStr
 
 # Schema for user input validation (Signup Request)
 class UserCreate(BaseModel):
-    username: str
+    username: test 01
     email: EmailStr
     password: str
 
 # Schema for response after user registration
 class UserResponse(BaseModel):
-    id: str
+    id: test 01
     username: str
     email: EmailStr
 
