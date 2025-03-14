@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend_part_2/Pages/community_page.dart';
 import 'package:frontend_part_2/Pages/conversation_branch_page.dart';
 import 'package:frontend_part_2/Pages/help_page.dart';
 import 'package:frontend_part_2/Pages/progress_tracking_page.dart';
@@ -27,7 +28,7 @@ class _HomePageState extends State<HomePage> {
       "color" : AppColors.green_4,
       "image" : "Assets/voice_practice_icon.png",
       "title" : "Voice Practice Branch",
-      "Page"  : const ConversationBranchPage() //Add Voice Practice Page here
+      "page"  : const CommunityPage() //Add Voice Practice Page here
     }
   ];
   @override
@@ -39,7 +40,7 @@ class _HomePageState extends State<HomePage> {
         children: [
           buildHomeScreen(context), //home_page
           const ProgressTrackingPage(), // progress_tracking page
-          const HelpPage(), // add Community Page here to the nav bar
+          const CommunityPage(), // add Community Page here to the nav bar
           const SettingsPage(), //Settings page
         ],
       ),
