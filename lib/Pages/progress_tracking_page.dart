@@ -73,8 +73,10 @@ class _ProgressTrackingPageState extends State<ProgressTrackingPage> {
                    const SizedBox(height: 20,),
                    Text(
                      "Average : ${(progressData.reduce((a,b) => a + b / progressData.length).toStringAsFixed(1))}%",
-                     style: const TextStyle(
+                     style: TextStyle(
                        fontSize: 16,
+                       fontWeight: FontWeight.bold,
+                       color: AppColors.green_1
                      ),
                    )
                  ],
