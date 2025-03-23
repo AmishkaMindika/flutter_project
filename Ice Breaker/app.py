@@ -31,7 +31,7 @@ recordings_collection = db['recordings']
 
 # Audio settings
 SAMPLE_RATE = 44100  # 44.1kHz standard sampling rate
-DURATION = 60  # 60 seconds of recording
+DURATION = 120  # 60 seconds of recording
 CHANNELS = 1  # Mono audio
 
 # Ice Breaker questions list
@@ -175,7 +175,7 @@ def calculate_similarity(text1, text2):
     return SequenceMatcher(None, text1, text2).ratio()
 
 # Function to calculate score based on word count and prompt similarity
-def calculate_score(word_count, prompt_text, speech_text, max_word_count=170):
+def calculate_score(word_count, prompt_text, speech_text, max_word_count=300):
     # Base score based on word count (60% of total score)
     word_count_score = min((word_count / max_word_count) * 60, 60)
     
