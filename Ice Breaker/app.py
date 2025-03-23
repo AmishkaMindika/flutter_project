@@ -31,7 +31,7 @@ recordings_collection = db['recordings']
 
 # Audio settings
 SAMPLE_RATE = 44100  # 44.1kHz standard sampling rate
-DURATION = 120  # 60 seconds of recording
+DURATION = 60  # 60 seconds of recording
 CHANNELS = 1  # Mono audio
 
 # Ice Breaker questions list
@@ -175,7 +175,7 @@ def calculate_similarity(text1, text2):
     return SequenceMatcher(None, text1, text2).ratio()
 
 # Function to calculate score based on word count and prompt similarity
-def calculate_score(word_count, prompt_text, speech_text, max_word_count=300):
+def calculate_score(word_count, prompt_text, speech_text, max_word_count=170):
     # Base score based on word count (60% of total score)
     word_count_score = min((word_count / max_word_count) * 60, 60)
     
@@ -331,6 +331,37 @@ def home():
                 border-radius: 4px;
                 box-sizing: border-box;
             }}
+            /* Countdown Timer Styles */
+            .countdown-container {{
+                display: none;
+                margin: 20px auto;
+                width: 300px;
+            }}
+            .countdown-timer {{
+                font-size: 36px;
+                font-weight: bold;
+                color: #333;
+                margin: 10px 0;
+            }}
+            .countdown-progress {{
+                width: 100%;
+                background-color: #f3f3f3;
+                border-radius: 10px;
+                height: 20px;
+                margin-top: 10px;
+            }}
+            .countdown-bar {{
+                height: 20px;
+                background-color: #4CAF50;
+                border-radius: 10px;
+                width: 100%;
+                transition: width 1s linear;
+            }}
+            .recording-indicator {{
+                color: #f44336;
+                font-weight: bold;
+                margin-top: 5px;
+            }}
         </style>
     </head>
     <body>
@@ -347,7 +378,17 @@ def home():
         </div>
         
         <button id="start-recording">Start Recording</button>
-        <div class="loading" id="loading">Recording in progress... (60 seconds)</div>
+        
+        <!-- Countdown Timer Container -->
+        <div class="countdown-container" id="countdown-container">
+            <div class="countdown-timer" id="countdown-timer">60</div>
+            <div class="countdown-progress">
+                <div class="countdown-bar" id="countdown-bar"></div>
+            </div>
+            <div class="recording-indicator">Recording in progress...</div>
+        </div>
+        
+        <div class="loading" id="loading">Processing your speech...</div>
         
         <div class="results" id="results">
             <h2>Results</h2>
@@ -384,6 +425,8 @@ def home():
             // Store the current question
             let currentQuestion = document.getElementById('ice-breaker-text').textContent;
             let currentRecordId = null;
+            let countdownInterval = null;
+            let remainingTime = {DURATION}; // Recording duration in seconds
             
             document.getElementById('new-question').addEventListener('click', function() {{
                 fetch('/get_ice_breaker')
@@ -394,9 +437,50 @@ def home():
                     }});
             }});
             
+            function startCountdown() {{
+                const countdownContainer = document.getElementById('countdown-container');
+                const countdownTimer = document.getElementById('countdown-timer');
+                const countdownBar = document.getElementById('countdown-bar');
+                
+                countdownContainer.style.display = 'block';
+                remainingTime = {DURATION};
+                countdownTimer.textContent = remainingTime;
+                countdownBar.style.width = '100%';
+                
+                // Update countdown every second
+                countdownInterval = setInterval(function() {{
+                    remainingTime--;
+                    countdownTimer.textContent = remainingTime;
+                    
+                    // Update progress bar
+                    const percentageLeft = (remainingTime / {DURATION}) * 100;
+                    countdownBar.style.width = percentageLeft + '%';
+                    
+                    // Change color as time gets low
+                    if (remainingTime <= 10) {{
+                        countdownTimer.style.color = '#f44336'; // Red
+                        countdownBar.style.backgroundColor = '#f44336';
+                    }}
+                    
+                    if (remainingTime <= 0) {{
+                        clearInterval(countdownInterval);
+                    }}
+                }}, 1000);
+            }}
+            
+            function stopCountdown() {{
+                clearInterval(countdownInterval);
+                document.getElementById('countdown-container').style.display = 'none';
+                document.getElementById('countdown-timer').style.color = '#333'; // Reset color
+                document.getElementById('countdown-bar').style.backgroundColor = '#4CAF50'; // Reset color
+            }}
+            
             document.getElementById('start-recording').addEventListener('click', function() {{
                 this.disabled = true;
-                document.getElementById('loading').style.display = 'block';
+                document.getElementById('loading').style.display = 'none';
+                
+                // Start countdown
+                startCountdown();
                 
                 const userName = document.getElementById('user-name').value || 'anonymous';
                 
@@ -412,6 +496,9 @@ def home():
                 }})
                 .then(response => response.json())
                 .then(data => {{
+                    // Stop countdown
+                    stopCountdown();
+                    
                     document.getElementById('loading').style.display = 'none';
                     document.getElementById('results').style.display = 'block';
                     document.getElementById('transcription').textContent = data.transcribed_text;
@@ -424,6 +511,9 @@ def home():
                 }})
                 .catch(error => {{
                     console.error('Error:', error);
+                    // Stop countdown
+                    stopCountdown();
+                    
                     document.getElementById('loading').style.display = 'none';
                     alert('An error occurred during recording. Please try again.');
                     this.disabled = false;
