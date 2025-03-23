@@ -11,8 +11,11 @@ import math
 from dotenv import load_dotenv
 import random
 from difflib import SequenceMatcher
-import threading
-import time
+import pymongo
+from bson.objectid import ObjectId
+from datetime import datetime
+import base64
+import io
 
 # Load environment variables
 load_dotenv('api.env')
@@ -20,15 +23,16 @@ load_dotenv('api.env')
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = os.path.dirname(os.path.abspath(__file__))
 
+# MongoDB connection setup
+MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017')
+mongo_client = pymongo.MongoClient(MONGO_URI)
+db = mongo_client['ice_breaker_app']
+recordings_collection = db['recordings']
+
 # Audio settings
 SAMPLE_RATE = 44100  # 44.1kHz standard sampling rate
 DURATION = 60  # 60 seconds of recording
 CHANNELS = 1  # Mono audio
-
-# Global variable for recording control
-recording_active = False
-recording_thread = None
-audio_data = None
 
 # Ice Breaker questions list
 ICE_BREAKER_QUESTIONS = [
@@ -58,30 +62,15 @@ ICE_BREAKER_QUESTIONS = [
 def get_random_ice_breaker():
     return random.choice(ICE_BREAKER_QUESTIONS)
 
-# Function to record audio with stop capability
-def record_audio_thread():
-    global recording_active, audio_data
+# Function to record audio
+def record_audio():
     print("Recording started...")
-    
-    # Set up the stream
-    audio_data = np.array([], dtype=np.int16)
-    stream = sd.InputStream(samplerate=SAMPLE_RATE, channels=CHANNELS, dtype=np.int16)
-    stream.start()
-    
-    # Record until stopped or max duration reached
-    start_time = time.time()
-    recording_active = True
-    
-    while recording_active and (time.time() - start_time) < DURATION:
-        buffer, overflowed = stream.read(SAMPLE_RATE)  # Read 1 second of audio
-        audio_data = np.append(audio_data, buffer.flatten())
-    
-    # Stop and close the stream
-    stream.stop()
-    stream.close()
-    recording_active = False
+
+    # Record audio for the specified duration
+    audio_data = sd.rec(int(SAMPLE_RATE * DURATION), samplerate=SAMPLE_RATE, channels=CHANNELS, dtype=np.int16)
+    sd.wait()  # Wait for recording to complete
     print("Recording finished.")
-    
+
     # Save as WAV file
     audio_file = os.path.join(app.config['UPLOAD_FOLDER'], 'recorded_audio.wav')
     with wave.open(audio_file, 'wb') as wf:
@@ -89,21 +78,64 @@ def record_audio_thread():
         wf.setsampwidth(2)
         wf.setframerate(SAMPLE_RATE)
         wf.writeframes(audio_data.tobytes())
-    
+
     print(f"Audio saved to {audio_file}")
     return audio_file
 
-# Function to stop recording
-def stop_recording():
-    global recording_active
-    recording_active = False
-    if recording_thread is not None:
-        recording_thread.join()  # Wait for the recording thread to complete
-    return os.path.join(app.config['UPLOAD_FOLDER'], 'recorded_audio.wav')
+# Function to save audio to MongoDB
+def save_audio_to_db(audio_file, user_id="anonymous", prompt=""):
+    # Read the audio file
+    with open(audio_file, 'rb') as f:
+        audio_data = f.read()
+    
+    # Convert to base64 for storage
+    audio_base64 = base64.b64encode(audio_data).decode('utf-8')
+    
+    # Save to MongoDB
+    record = {
+        'user_id': user_id,
+        'prompt': prompt,
+        'audio_data': audio_base64,
+        'timestamp': datetime.now()
+    }
+    
+    # Insert and return the record ID
+    result = recordings_collection.insert_one(record)
+    return str(result.inserted_id)
+
+# Function to get audio from MongoDB
+def get_audio_from_db(record_id):
+    record = recordings_collection.find_one({'_id': ObjectId(record_id)})
+    if record and 'audio_data' in record:
+        # Decode base64 audio data
+        audio_data = base64.b64decode(record['audio_data'])
+        return audio_data, record.get('prompt', '')
+    return None, None
 
 # Function to split long audio into smaller chunks (max 60 sec each)
 def split_audio(audio_file, chunk_length=60):  # 60 seconds per chunk
     audio = AudioSegment.from_wav(audio_file)
+    total_length = len(audio) / 1000  # Convert ms to seconds
+    num_chunks = math.ceil(total_length / chunk_length)
+    
+    chunk_files = []
+    for i in range(num_chunks):
+        start_time = i * chunk_length * 1000  # Convert to ms
+        end_time = min((i + 1) * chunk_length * 1000, len(audio))
+        chunk = audio[start_time:end_time]
+        
+        chunk_filename = f"chunk_{i}.wav"
+        chunk.export(chunk_filename, format="wav")
+        chunk_files.append(chunk_filename)
+    
+    return chunk_files
+
+# Function to split audio data directly
+def split_audio_data(audio_data, chunk_length=60):
+    # Convert bytes to AudioSegment
+    audio_file = io.BytesIO(audio_data)
+    audio = AudioSegment.from_wav(audio_file)
+    
     total_length = len(audio) / 1000  # Convert ms to seconds
     num_chunks = math.ceil(total_length / chunk_length)
     
@@ -156,10 +188,51 @@ def calculate_score(word_count, prompt_text, speech_text, max_word_count=170):
     
     return round(total_score, 2), round(similarity_ratio * 100, 2)
 
+# Function to save score to MongoDB
+def save_score_to_db(record_id, transcribed_text, word_count, similarity_percentage, score):
+    # Update the existing record with the results
+    recordings_collection.update_one(
+        {'_id': ObjectId(record_id)},
+        {'$set': {
+            'transcribed_text': transcribed_text,
+            'word_count': word_count,
+            'similarity_percentage': similarity_percentage,
+            'score': score,
+            'processed_at': datetime.now()
+        }}
+    )
+    return record_id
+
 # Process the audio file
 def process_audio_file(audio_file='recorded_audio.wav', prompt_text=""):
     # Split audio into smaller chunks
     chunk_files = split_audio(audio_file)
+
+    full_text = ""
+
+    # Process each chunk
+    for chunk_file in chunk_files:
+        text = audio_to_text(chunk_file)
+        full_text += text + " "
+        os.remove(chunk_file)  # Remove temporary chunk file
+
+    # Count words in the full transcribed text
+    full_word_count = len(full_text.split())
+
+    # Calculate score based on word count and similarity to prompt
+    score, similarity_percentage = calculate_score(full_word_count, prompt_text, full_text)
+
+    return {
+        'transcribed_text': full_text.strip(),
+        'full_word_count': full_word_count,
+        'score': score,
+        'similarity_percentage': similarity_percentage
+    }
+
+# Process audio data directly
+def process_audio_data(audio_data, prompt_text=""):
+    # Split audio into smaller chunks
+    chunk_files = split_audio_data(audio_data)
 
     full_text = ""
 
@@ -220,17 +293,6 @@ def home():
             button:hover {{
                 background-color: #45a049;
             }}
-            button:disabled {{
-                background-color: #cccccc;
-                cursor: not-allowed;
-            }}
-            .stop-btn {{
-                background-color: #f44336;
-                display: none;
-            }}
-            .stop-btn:hover {{
-                background-color: #d32f2f;
-            }}
             .results {{
                 margin-top: 20px;
                 text-align: left;
@@ -240,66 +302,52 @@ def home():
                 display: none;
                 margin: 20px 0;
             }}
-            .timer-container {{
-                margin: 20px auto;
-                width: 300px;
+            #history-section {{
+                margin-top: 40px;
                 display: none;
             }}
-            .timer {{
-                font-size: 36px;
-                font-weight: bold;
-                margin-bottom: 10px;
-            }}
-            .timer-bar {{
-                height: 20px;
-                background-color: #f0f8ff;
-                border-radius: 10px;
-                overflow: hidden;
-            }}
-            .timer-progress {{
-                height: 100%;
+            table {{
                 width: 100%;
-                background-color: #4CAF50;
-                transition: width 1s linear;
+                border-collapse: collapse;
+                margin-top: 20px;
             }}
-            .timer-red {{
-                background-color: #FF6347;
+            th, td {{
+                border: 1px solid #ddd;
+                padding: 8px;
+                text-align: left;
             }}
-            .new-question-btn {{
-                background-color: #2196F3;
+            th {{
+                background-color: #f2f2f2;
             }}
-            .new-question-btn:hover {{
-                background-color: #0b7dda;
+            .user-section {{
+                margin-bottom: 20px;
             }}
-            .button-container {{
-                display: flex;
-                justify-content: center;
-                gap: 10px;
+            input[type=text], input[type=email], input[type=password] {{
+                width: 100%;
+                padding: 12px 20px;
+                margin: 8px 0;
+                display: inline-block;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                box-sizing: border-box;
             }}
         </style>
     </head>
     <body>
         <h1>Ice Breaker Speech Challenge</h1>
         
+        <div class="user-section">
+            <input type="text" id="user-name" placeholder="Your Name (optional)">
+        </div>
+        
         <div class="question">
             <p>Please speak about the following topic for up to 60 seconds:</p>
             <p><strong id="ice-breaker-text">{ice_breaker}</strong></p>
+            <button id="new-question">Get New Question</button>
         </div>
         
-        <div class="button-container">
-            <button id="new-question" class="new-question-btn">Get New Question</button>
-            <button id="start-recording">Start Recording</button>
-            <button id="stop-recording" class="stop-btn">Stop Recording</button>
-        </div>
-        
-        <div class="timer-container" id="timer-container">
-            <div class="timer" id="timer">60</div>
-            <div class="timer-bar">
-                <div class="timer-progress" id="timer-progress"></div>
-            </div>
-        </div>
-        
-        <div class="loading" id="loading">Processing recording...</div>
+        <button id="start-recording">Start Recording</button>
+        <div class="loading" id="loading">Recording in progress... (60 seconds)</div>
         
         <div class="results" id="results">
             <h2>Results</h2>
@@ -310,24 +358,34 @@ def home():
             <div id="word-count"></div>
             <div id="similarity"></div>
             <div id="score"></div>
+            <div id="record-id" style="font-size: 12px; color: #888;"></div>
+        </div>
+        
+        <button id="view-history" style="margin-top: 30px; background-color: #3498db;">View History</button>
+        
+        <div id="history-section">
+            <h2>Your Recording History</h2>
+            <table id="history-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Prompt</th>
+                        <th>Score</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="history-body">
+                    <!-- History data will be loaded here -->
+                </tbody>
+            </table>
         </div>
         
         <script>
             // Store the current question
             let currentQuestion = document.getElementById('ice-breaker-text').textContent;
-            let timerInterval;
-            let recordingInProgress = false;
+            let currentRecordId = null;
             
-            // Get DOM elements
-            const startButton = document.getElementById('start-recording');
-            const stopButton = document.getElementById('stop-recording');
-            const newQuestionButton = document.getElementById('new-question');
-            const timerContainer = document.getElementById('timer-container');
-            const loadingElement = document.getElementById('loading');
-            const resultsElement = document.getElementById('results');
-            
-            // New Question button
-            newQuestionButton.addEventListener('click', function() {{
+            document.getElementById('new-question').addEventListener('click', function() {{
                 fetch('/get_ice_breaker')
                     .then(response => response.json())
                     .then(data => {{
@@ -336,121 +394,121 @@ def home():
                     }});
             }});
             
-            function updateTimer(timeLeft, duration) {{
-                document.getElementById('timer').textContent = timeLeft;
-                const progressBar = document.getElementById('timer-progress');
-                const percentage = (timeLeft / duration) * 100;
-                progressBar.style.width = percentage + '%';
+            document.getElementById('start-recording').addEventListener('click', function() {{
+                this.disabled = true;
+                document.getElementById('loading').style.display = 'block';
                 
-                // Change color when less than 10 seconds remain
-                if (timeLeft <= 10) {{
-                    progressBar.classList.add('timer-red');
-                }} else {{
-                    progressBar.classList.remove('timer-red');
-                }}
-            }}
-            
-            function startTimer(duration) {{
-                let timeLeft = duration;
-                timerContainer.style.display = 'block';
-                updateTimer(timeLeft, duration);
+                const userName = document.getElementById('user-name').value || 'anonymous';
                 
-                timerInterval = setInterval(function() {{
-                    timeLeft--;
-                    updateTimer(timeLeft, duration);
-                    
-                    if (timeLeft <= 0) {{
-                        clearInterval(timerInterval);
-                        stopRecording();
-                    }}
-                }}, 1000);
-            }}
-            
-            function stopTimerAndReset() {{
-                clearInterval(timerInterval);
-                timerContainer.style.display = 'none';
-            }}
-            
-            function stopRecording() {{
-                if (!recordingInProgress) return;
-                
-                recordingInProgress = false;
-                
-                // Show processing message
-                loadingElement.style.display = 'block';
-                
-                // Hide stop button, show start button
-                stopButton.style.display = 'none';
-                
-                // Stop the timer
-                stopTimerAndReset();
-                
-                // Call the API to stop recording
-                fetch('/stop_recording', {{
+                fetch('/start_recording', {{
                     method: 'POST',
                     headers: {{
                         'Content-Type': 'application/json'
                     }},
                     body: JSON.stringify({{
-                        prompt: currentQuestion
+                        prompt: currentQuestion,
+                        user_id: userName
                     }})
                 }})
                 .then(response => response.json())
                 .then(data => {{
-                    loadingElement.style.display = 'none';
-                    resultsElement.style.display = 'block';
+                    document.getElementById('loading').style.display = 'none';
+                    document.getElementById('results').style.display = 'block';
                     document.getElementById('transcription').textContent = data.transcribed_text;
                     document.getElementById('word-count').textContent = 'Word Count: ' + data.word_count;
                     document.getElementById('similarity').textContent = 'Relevance to Topic: ' + data.similarity_percentage.toFixed(2) + '%';
                     document.getElementById('score').textContent = 'Overall Score: ' + data.score.toFixed(2) + '%';
-                    
-                    // Re-enable buttons
-                    startButton.disabled = false;
-                    newQuestionButton.disabled = false;
+                    document.getElementById('record-id').textContent = 'Record ID: ' + data.record_id;
+                    currentRecordId = data.record_id;
+                    this.disabled = false;
                 }})
                 .catch(error => {{
                     console.error('Error:', error);
-                    loadingElement.style.display = 'none';
+                    document.getElementById('loading').style.display = 'none';
                     alert('An error occurred during recording. Please try again.');
-                    
-                    // Re-enable buttons
-                    startButton.disabled = false;
-                    newQuestionButton.disabled = false;
-                }});
-            }}
-            
-            // Start Recording button
-            startButton.addEventListener('click', function() {{
-                // Disable start and new question buttons
-                this.disabled = true;
-                newQuestionButton.disabled = true;
-                
-                // Show stop button
-                stopButton.style.display = 'inline-block';
-                
-                // Hide results and show timer
-                resultsElement.style.display = 'none';
-                
-                // Set recording in progress flag
-                recordingInProgress = true;
-                
-                // Start the timer countdown
-                startTimer(DURATION);
-                
-                // Start recording
-                fetch('/start_recording', {{
-                    method: 'POST',
-                    headers: {{
-                        'Content-Type': 'application/json'
-                    }}
+                    this.disabled = false;
                 }});
             }});
             
-            // Stop Recording button
-            stopButton.addEventListener('click', stopRecording);
-            
-            // Set the global duration for JavaScript
-            const DURATION = {DURATION};
+            document.getElementById('view-history').addEventListener('click', function() {{
+                const historySection = document.getElementById('history-section');
+                
+                if (historySection.style.display === 'block') {{
+                    historySection.style.display = 'none';
+                    this.textContent = 'View History';
+                }} else {{
+                    const userName = document.getElementById('user-name').value || 'anonymous';
+                    
+                    fetch('/get_history', {{
+                        method: 'POST',
+                        headers: {{
+                            'Content-Type': 'application/json'
+                        }},
+                        body: JSON.stringify({{
+                            user_id: userName
+                        }})
+                    }})
+                    .then(response => response.json())
+                    .then(data => {{
+                        const historyBody = document.getElementById('history-body');
+                        historyBody.innerHTML = '';
+                        
+                        if (data.recordings.length === 0) {{
+                            historyBody.innerHTML = '<tr><td colspan="4">No recordings found</td></tr>';
+                        }} else {{
+                            data.recordings.forEach(recording => {{
+                                const row = document.createElement('tr');
+                                
+                                // Date column
+                                const dateCell = document.createElement('td');
+                                const recordDate = new Date(recording.timestamp);
+                                dateCell.textContent = recordDate.toLocaleString();
+                                row.appendChild(dateCell);
+                                
+                                // Prompt column
+                                const promptCell = document.createElement('td');
+                                promptCell.textContent = recording.prompt;
+                                row.appendChild(promptCell);
+                                
+                                // Score column
+                                const scoreCell = document.createElement('td');
+                                scoreCell.textContent = recording.score ? recording.score.toFixed(2) + '%' : 'N/A';
+                                row.appendChild(scoreCell);
+                                
+                                // Actions column
+                                const actionsCell = document.createElement('td');
+                                
+                                const playButton = document.createElement('button');
+                                playButton.textContent = 'Play';
+                                playButton.style.padding = '5px 10px';
+                                playButton.style.marginRight = '5px';
+                                playButton.addEventListener('click', function() {{
+                                    window.location.href = '/play_audio/' + recording._id;
+                                }});
+                                actionsCell.appendChild(playButton);
+                                
+                                const viewButton = document.createElement('button');
+                                viewButton.textContent = 'Details';
+                                viewButton.style.padding = '5px 10px';
+                                viewButton.addEventListener('click', function() {{
+                                    window.location.href = '/recording_details/' + recording._id;
+                                }});
+                                actionsCell.appendChild(viewButton);
+                                
+                                row.appendChild(actionsCell);
+                                historyBody.appendChild(row);
+                            }});
+                        }}
+                        
+                        historySection.style.display = 'block';
+                        this.textContent = 'Hide History';
+                    }})
+                    .catch(error => {{
+                        console.error('Error:', error);
+                        alert('Failed to load history.');
+                    }});
+                }}
+            }});
         </script>
     </body>
     </html>
@@ -461,36 +519,64 @@ def home():
 def get_ice_breaker():
     return jsonify({'question': get_random_ice_breaker()})
 
-# API to start recording
+# API to start recording and process immediately
 @app.route('/start_recording', methods=['POST'])
 def start_recording():
-    global recording_thread
-    
-    # Start the recording in a separate thread
-    recording_thread = threading.Thread(target=record_audio_thread)
-    recording_thread.start()
-    
-    return jsonify({'message': 'Recording started'})
-
-# API to stop recording and process
-@app.route('/stop_recording', methods=['POST'])
-def stop_recording_api():
-    # Get the prompt from the request
+    # Get the prompt and user ID from the request
     data = request.get_json()
     prompt = data.get('prompt', '')
+    user_id = data.get('user_id', 'anonymous')
     
-    # Stop the recording
-    audio_file = stop_recording()
+    audio_file = record_audio()
+    
+    # Save audio to MongoDB
+    record_id = save_audio_to_db(audio_file, user_id, prompt)
     
     # Process the recorded audio
     results = process_audio_file(audio_file, prompt)
+    
+    # Save the results to MongoDB
+    save_score_to_db(
+        record_id, 
+        results['transcribed_text'], 
+        results['full_word_count'], 
+        results['similarity_percentage'], 
+        results['score']
+    )
     
     return jsonify({
         'message': 'Recording and processing completed',
         'transcribed_text': results['transcribed_text'],
         'word_count': results['full_word_count'],
         'score': results['score'],
-        'similarity_percentage': results['similarity_percentage']
+        'similarity_percentage': results['similarity_percentage'],
+        'record_id': record_id
+    })
+
+# API to get user recording history
+@app.route('/get_history', methods=['POST'])
+def get_history():
+    data = request.get_json()
+    user_id = data.get('user_id', 'anonymous')
+    
+    # Query MongoDB for user recordings
+    recordings = list(recordings_collection.find(
+        {'user_id': user_id},
+        {'audio_data': 0}  # Exclude audio data for performance
+    ).sort('timestamp', -1))  # Sort by newest first
+    
+    # Convert ObjectId to string for JSON serialization
+    for recording in recordings:
+        recording['_id'] = str(recording['_id'])
+        
+        # Convert datetime objects to ISO format strings
+        if 'timestamp' in recording:
+            recording['timestamp'] = recording['timestamp'].isoformat()
+        if 'processed_at' in recording:
+            recording['processed_at'] = recording['processed_at'].isoformat()
+    
+    return jsonify({
+        'recordings': recordings
     })
 
 # API to get the recorded audio file
@@ -501,18 +587,164 @@ def get_audio():
         return send_file(audio_file, as_attachment=True)
     return jsonify({'message': 'No recorded file found'}), 404
 
+# API to play a specific recording
+@app.route('/play_audio/<record_id>', methods=['GET'])
+def play_audio(record_id):
+    audio_data, prompt = get_audio_from_db(record_id)
+    if audio_data:
+        # Create a response with the audio data
+        return Response(
+            audio_data,
+            mimetype='audio/wav',
+            headers={
+                'Content-Disposition': f'inline; filename=recording_{record_id}.wav'
+            }
+        )
+    return jsonify({'message': 'Recording not found'}), 404
+
+# Page to view recording details
+@app.route('/recording_details/<record_id>', methods=['GET'])
+def recording_details(record_id):
+    # Get the recording from MongoDB
+    recording = recordings_collection.find_one({'_id': ObjectId(record_id)})
+    
+    if not recording:
+        return "Recording not found", 404
+    
+    # Format the data for display
+    timestamp = recording.get('timestamp', datetime.now()).strftime('%Y-%m-%d %H:%M:%S')
+    prompt = recording.get('prompt', 'No prompt')
+    transcribed_text = recording.get('transcribed_text', 'Not transcribed')
+    word_count = recording.get('word_count', 'N/A')
+    similarity = recording.get('similarity_percentage', 'N/A')
+    score = recording.get('score', 'N/A')
+    
+    # Create the HTML page
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Recording Details</title>
+        <style>
+            body {{
+                font-family: Arial, sans-serif;
+                max-width: 800px;
+                margin: 0 auto;
+                padding: 20px;
+            }}
+            h1 {{
+                color: #333;
+            }}
+            .details-container {{
+                background-color: #f9f9f9;
+                padding: 20px;
+                border-radius: 5px;
+                margin-top: 20px;
+            }}
+            .detail-row {{
+                margin-bottom: 15px;
+            }}
+            .detail-label {{
+                font-weight: bold;
+                display: inline-block;
+                width: 150px;
+            }}
+            .audio-container {{
+                margin: 20px 0;
+            }}
+            button {{
+                background-color: #4CAF50;
+                color: white;
+                padding: 10px 20px;
+                border: none;
+                border-radius: 5px;
+                cursor: pointer;
+                margin-top: 20px;
+            }}
+            button:hover {{
+                background-color: #45a049;
+            }}
+        </style>
+    </head>
+    <body>
+        <h1>Recording Details</h1>
+        
+        <div class="details-container">
+            <div class="detail-row">
+                <span class="detail-label">Date:</span>
+                <span>{timestamp}</span>
+            </div>
+            
+            <div class="detail-row">
+                <span class="detail-label">Prompt:</span>
+                <span>{prompt}</span>
+            </div>
+            
+            <div class="detail-row">
+                <span class="detail-label">Word Count:</span>
+                <span>{word_count}</span>
+            </div>
+            
+            <div class="detail-row">
+                <span class="detail-label">Relevance:</span>
+                <span>{similarity}%</span>
+            </div>
+            
+            <div class="detail-row">
+                <span class="detail-label">Score:</span>
+                <span>{score}%</span>
+            </div>
+        </div>
+        
+        <h2>Transcription</h2>
+        <div class="details-container">
+            <p>{transcribed_text}</p>
+        </div>
+        
+        <div class="audio-container">
+            <h2>Audio Recording</h2>
+            <audio controls>
+                <source src="/play_audio/{record_id}" type="audio/wav">
+                Your browser does not support the audio element.
+            </audio>
+        </div>
+        
+        <button onclick="window.location.href='/'">Back to Home</button>
+    </body>
+    </html>
+    """
+
 # API to process existing audio file
 @app.route('/process_audio', methods=['GET', 'POST'])
 def process_existing_audio():
-    audio_file = os.path.join(app.config['UPLOAD_FOLDER'], 'recorded_audio.wav')
-    if not os.path.exists(audio_file):
-        return jsonify({'message': 'No recorded file found'}), 404
-    
-    # Get the prompt from the request
     data = request.get_json()
-    prompt = data.get('prompt', '')
+    record_id = data.get('record_id')
     
-    results = process_audio_file(audio_file, prompt)
+    if record_id:
+        # Process from MongoDB
+        audio_data, prompt = get_audio_from_db(record_id)
+        if not audio_data:
+            return jsonify({'message': 'Recording not found'}), 404
+        
+        results = process_audio_data(audio_data, prompt)
+        
+        # Save results to MongoDB
+        save_score_to_db(
+            record_id, 
+            results['transcribed_text'], 
+            results['full_word_count'], 
+            results['similarity_percentage'], 
+            results['score']
+        )
+    else:
+        # Process local file
+        audio_file = os.path.join(app.config['UPLOAD_FOLDER'], 'recorded_audio.wav')
+        if not os.path.exists(audio_file):
+            return jsonify({'message': 'No recorded file found'}), 404
+        
+        prompt = data.get('prompt', '')
+        
+        results = process_audio_file(audio_file, prompt)
     
     return jsonify({
         'transcribed_text': results['transcribed_text'],
