@@ -31,7 +31,7 @@ recordings_collection = db['recordings']
 
 # Audio settings
 SAMPLE_RATE = 44100  # 44.1kHz standard sampling rate
-DURATION = 60  # 60 seconds of recording
+DURATION = 120  # 60 seconds of recording
 CHANNELS = 1  # Mono audio
 
 # Ice Breaker questions list
@@ -112,8 +112,8 @@ def get_audio_from_db(record_id):
         return audio_data, record.get('prompt', '')
     return None, None
 
-# Function to split long audio into smaller chunks (max 60 sec each)
-def split_audio(audio_file, chunk_length=60):  # 60 seconds per chunk
+# Function to split long audio into smaller chunks (max 120 sec each)
+def split_audio(audio_file, chunk_length=120):  # 120 seconds per chunk
     audio = AudioSegment.from_wav(audio_file)
     total_length = len(audio) / 1000  # Convert ms to seconds
     num_chunks = math.ceil(total_length / chunk_length)
@@ -131,7 +131,7 @@ def split_audio(audio_file, chunk_length=60):  # 60 seconds per chunk
     return chunk_files
 
 # Function to split audio data directly
-def split_audio_data(audio_data, chunk_length=60):
+def split_audio_data(audio_data, chunk_length=120):
     # Convert bytes to AudioSegment
     audio_file = io.BytesIO(audio_data)
     audio = AudioSegment.from_wav(audio_file)
@@ -372,7 +372,7 @@ def home():
         </div>
         
         <div class="question">
-            <p>Please speak about the following topic for up to 60 seconds:</p>
+            <p>Please speak about the following topic for up to 120 seconds:</p>
             <p><strong id="ice-breaker-text">{ice_breaker}</strong></p>
             <button id="new-question">Get New Question</button>
         </div>
@@ -381,7 +381,7 @@ def home():
         
         <!-- Countdown Timer Container -->
         <div class="countdown-container" id="countdown-container">
-            <div class="countdown-timer" id="countdown-timer">60</div>
+            <div class="countdown-timer" id="countdown-timer">120</div>
             <div class="countdown-progress">
                 <div class="countdown-bar" id="countdown-bar"></div>
             </div>
