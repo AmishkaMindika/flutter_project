@@ -10,97 +10,10 @@ import 'community_chat_screen.dart';
 import 'ice_breaker_screen.dart';
 import 'models/user.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomePage extends StatefulWidget {
   final User user;
 
-  const HomeScreen({super.key, required this.user});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.green.shade50,
-      appBar: AppBar(
-        title: const Text(
-          'Home',
-          style: TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
-            color: Colors.black,
-          ),
-        ),
-        centerTitle: true,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.person, color: Colors.black),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => ProfileScreen(user: user),
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              'Welcome, ${user.name}!',
-              style: const TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-                color: Colors.black,
-              ),
-            ),
-            const SizedBox(height: 30),
-            _buildNavigationButton(
-              context,
-              "Voice Practice",
-                  () => VoicePracticeScreen(userName: user.name),
-            ),
-            _buildNavigationButton(
-              context,
-              "Community Chat",
-                  () => CommunityChatScreen(),
-            ),
-            _buildNavigationButton(
-              context,
-              "Ice Breaker Session",
-                  () => IceBreakerScreen(userName: user.name),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildNavigationButton(BuildContext context, String label, Widget Function() page) {
-    return Column(
-      children: [
-        ElevatedButton(
-          onPressed: () {
-            Navigator.push(context, MaterialPageRoute(builder: (context) => page()));
-          },
-          style: ElevatedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-            backgroundColor: Colors.green.shade300,
-          ),
-          child: Text(label, style: const TextStyle(fontSize: 18)),
-        ),
-        const SizedBox(height: 20),
-      ],
-    );
-  }
-}
-
-class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+  const HomePage({super.key, required this.user});
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -109,16 +22,16 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   int currentPageIndex = 0;
 
-  final List<Map<String, dynamic>> gridItem = [
+  final List<Map<String, dynamic>> gridItems = [
     {
       "color": AppColors.green_5,
-      "image": "Assets/ai_chatbot_icon.png",
+      "image": "assets/ai_chatbot_icon.png",
       "title": "Conversation Branch",
       "page": const ConversationBranchPage(),
     },
     {
       "color": AppColors.green_4,
-      "image": "Assets/voice_practice_icon.png",
+      "image": "assets/voice_practice_icon.png",
       "title": "Voice Practice",
       "page": VoicePracticeScreen(userName: "User"),
     }
@@ -136,32 +49,20 @@ class _HomePageState extends State<HomePage> {
           const SettingsPage(),
         ],
       ),
-      bottomNavigationBar: NavigationBarTheme(
-        data: NavigationBarThemeData(
-          indicatorColor: AppColors.textMain,
-          labelTextStyle: WidgetStateProperty.all(
-            TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.bold,
-              color: AppColors.textMain,
-            ),
-          ),
-        ),
-        child: NavigationBar(
-          backgroundColor: AppColors.green_5,
-          selectedIndex: currentPageIndex,
-          onDestinationSelected: (int index) {
-            setState(() {
-              currentPageIndex = index;
-            });
-          },
-          destinations: const <NavigationDestination>[
-            NavigationDestination(icon: Icon(Icons.home), label: "Home"),
-            NavigationDestination(icon: Icon(Icons.bar_chart_rounded), label: "Progress"),
-            NavigationDestination(icon: Icon(Icons.people_alt_rounded), label: "Community"),
-            NavigationDestination(icon: Icon(Icons.settings), label: "Settings"),
-          ],
-        ),
+      bottomNavigationBar: NavigationBar(
+        backgroundColor: AppColors.green_5,
+        selectedIndex: currentPageIndex,
+        onDestinationSelected: (int index) {
+          setState(() {
+            currentPageIndex = index;
+          });
+        },
+        destinations: const <NavigationDestination>[
+          NavigationDestination(icon: Icon(Icons.home), label: "Home"),
+          NavigationDestination(icon: Icon(Icons.bar_chart_rounded), label: "Progress"),
+          NavigationDestination(icon: Icon(Icons.people_alt_rounded), label: "Community"),
+          NavigationDestination(icon: Icon(Icons.settings), label: "Settings"),
+        ],
       ),
     );
   }
@@ -191,7 +92,7 @@ class _HomePageState extends State<HomePage> {
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    "Welcome",
+                    "Welcome, ${widget.user.name}!",
                     style: TextStyle(fontSize: 40, fontWeight: FontWeight.w800, color: AppColors.textMain),
                   ),
                   const SizedBox(height: 10),
@@ -199,7 +100,7 @@ class _HomePageState extends State<HomePage> {
                   const SizedBox(height: 50),
                   Expanded(
                     child: GridView.builder(
-                      itemCount: gridItem.length,
+                      itemCount: gridItems.length,
                       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: 2,
                         crossAxisSpacing: 10,
@@ -207,7 +108,7 @@ class _HomePageState extends State<HomePage> {
                         childAspectRatio: .75,
                       ),
                       itemBuilder: (context, index) {
-                        final item = gridItem[index];
+                        final item = gridItems[index];
                         return GestureDetector(
                           onTap: () {
                             Navigator.push(context, MaterialPageRoute(builder: (context) => item["page"]));
@@ -219,7 +120,6 @@ class _HomePageState extends State<HomePage> {
                             ),
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.center,
                               children: [
                                 Image.asset(item["image"], width: 150, height: 145, fit: BoxFit.cover),
                                 Text(
@@ -268,7 +168,7 @@ class _HomePageState extends State<HomePage> {
             child: IconButton(
               icon: Icon(Icons.play_circle_outline_rounded, size: 50, color: AppColors.textMain),
               onPressed: () {
-                Navigator.push(context, MaterialPageRoute(builder: (context) => IceBreakerScreen(userName: "User")));
+                Navigator.push(context, MaterialPageRoute(builder: (context) => IceBreakerScreen(userName: widget.user.name)));
               },
             ),
           ),
@@ -277,4 +177,3 @@ class _HomePageState extends State<HomePage> {
     );
   }
 }
-

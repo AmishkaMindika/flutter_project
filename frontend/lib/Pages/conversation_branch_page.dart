@@ -4,6 +4,7 @@ import '../style/colour.dart';
 
 
 
+
 class ConversationBranchPage extends StatefulWidget {
   const ConversationBranchPage({super.key});
 
@@ -14,27 +15,27 @@ class ConversationBranchPage extends StatefulWidget {
 class _ConversationBranchPageState extends State<ConversationBranchPage> {
   final List<Map<String, String>> chatBranches = [
     {
-      "imagePath" : "Assets/interview_chat_icon.png",
+      "imagePath" : "assets/interview_chat_icon.png",
       "title": "Interview Branch",
       "description" : "Learn how to communicate in an Interview"
     },
     {
-      "imagePath" : "Assets/debating_icon.png",
+      "imagePath" : "assets/debating_icon.png",
       "title": "Debating Branch",
       "description" : "Go head to head in a debate and test yourself"
     },
     {
-      "imagePath" : "Assets/public_speaking_icon.png",
+      "imagePath" : "assets/public_speaking_icon.png",
       "title": "Public Speaking Branch",
       "description" : "Immerse yourself in front of a large crowd"
     },
     {
-      "imagePath" : "Assets/casual_talk_icon.png",
+      "imagePath" : "assets/casual_talk_icon.png",
       "title": "Casual Chat Branch",
       "description" : "Just have a Casual Chat"
     },
     {
-      "imagePath" : "Assets/funny_talk_icon.png",
+      "imagePath" : "assets/funny_talk_icon.png",
       "title": "Funny Chat Branch",
       "description" : "Make a funny joke and talk"
     },

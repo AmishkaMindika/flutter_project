@@ -44,7 +44,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
-        builder: (context) => HomeScreen(user: widget.user),
+        builder: (context) => HomePage(user: widget.user),
       ),
     );
   }
