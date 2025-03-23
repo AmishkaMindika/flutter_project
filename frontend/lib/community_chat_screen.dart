@@ -17,7 +17,7 @@ class CommunityChatScreen extends StatelessWidget {
           ),
         ),
         centerTitle: true,
-        backgroundColor: Colors.green.shade200,
+        backgroundColor: Colors.green,
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -35,7 +35,7 @@ class CommunityChatScreen extends StatelessWidget {
                     ),
                     child: ListTile(
                       leading: CircleAvatar(
-                        backgroundColor: Colors.green.shade300,
+                        backgroundColor: Colors.green,
                         child: Text(
                           'U${index + 1}',
                           style: TextStyle(color: Colors.white),

@@ -14,7 +14,7 @@ class IceBreakerScreen extends StatelessWidget {
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Colors.green.shade100, Colors.blue.shade100],
+            colors: [Colors.white, Colors.green],
           ),
         ),
         child: Column(
@@ -83,7 +83,7 @@ class IceBreakerScreen extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
-                      color: Colors.green.shade900,
+                      color: Colors.white,
                     ),
                   ),
                   IconButton(
