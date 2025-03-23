@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'Debating_chat.dart';
+
 import '../style/colour.dart';
+import 'Interview_chat.dart';
 
 class ConversationBranchPage extends StatefulWidget {
   const ConversationBranchPage({super.key});
@@ -38,12 +41,22 @@ class _ConversationBranchPageState extends State<ConversationBranchPage> {
   ];
 
   void navigateToChat(String branchTitle) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ChatScreen(branchTitle: branchTitle),
-      ),
-    );
+    if (branchTitle == "Interview Branch") {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => InterviewChatPage()),
+      );
+    } else if (branchTitle == "Debating Branch") {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => DebatingChatPage()),
+      );
+    } else {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => ChatScreen(branchTitle: branchTitle)),
+      );
+    }
   }
 
   @override
@@ -220,4 +233,3 @@ class ChatScreen extends StatelessWidget {
     );
   }
 }
-
