@@ -12,7 +12,7 @@ import google.generativeai as genai
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "C:/Users/Admin/Documents/google_credentials.json"
 
 # Initialize Gemini API
-genai.configure(api_key="YOUR_GEMINI_API_KEY")  # Replace with your Gemini API key
+genai.configure(api_key=AIzaSyD3yp-QXCCY-0wjUlxXE5hsSohKANjZwQ0)  # Replace with your Gemini API key
 
 app = Flask(__name__)
 

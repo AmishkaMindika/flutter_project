@@ -11,15 +11,15 @@ class VoicePracticeScreen extends StatelessWidget {
       backgroundColor: Colors.green.shade50,
       appBar: AppBar(
         title: Text(
-          'Voice',
+          '🎙️',
           style: TextStyle(
             fontSize: 24,
             fontWeight: FontWeight.bold,
-            color: Colors.black,
+            color: Colors.white,
           ),
         ),
         centerTitle: true,
-        backgroundColor: Colors.green.shade200,
+        backgroundColor: Colors.green,
       ),
       body: Padding(
 
@@ -62,7 +62,7 @@ class VoicePracticeScreen extends StatelessWidget {
               style: ElevatedButton.styleFrom(
                 padding: EdgeInsets.symmetric(horizontal: 40, vertical: 15),
                 textStyle: TextStyle(fontSize: 18),
-                backgroundColor: Colors.green.shade100,
+                backgroundColor: Colors.green,
               ),
             ),
             SizedBox(height: 50),

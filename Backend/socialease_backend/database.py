@@ -1,22 +1,17 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
+from pymongo import MongoClient
 
-# MySQL Database URL 
-DATABASE_URL ="mysql+pymysql://root:root123@localhost:3306/socialease"
+# MongoDB Database URL
+DATABASE_URL = "mongodb://username:password@localhost:27017"
 
-# Create Engine
-engine = create_engine(DATABASE_URL, echo=True)
+# Create MongoDB Client
+client = MongoClient(DATABASE_URL)
 
-# Create Session
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+# Access the database
+db = client["socialease"]
 
-# Base Class for Models
-Base = declarative_base()
-
-# Dependency to get a database session
+# Dependency to get a database connection
 def get_db():
-    db = SessionLocal()
     try:
         yield db
     finally:
-        db.close()
+        pass  # Removed client.close() to avoid errors
