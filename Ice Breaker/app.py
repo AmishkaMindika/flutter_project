@@ -10,6 +10,7 @@ from pydub import AudioSegment
 import math
 from dotenv import load_dotenv
 import random
+from difflib import SequenceMatcher
 
 # Load environment variables
 load_dotenv('api.env')
@@ -102,14 +103,31 @@ def audio_to_text(audio_file):
         print(f"Google STT API request failed: {e}")
         return ""
 
-# Function to calculate score based on word count
-def calculate_score(word_count, max_word_count=170):
-    score = (word_count / max_word_count) * 100  # Calculate percentage score
-    score = min(score, 100)  # Ensure max score is 100%
-    return round(score, 2)  # Round to 2 decimal places
+# Function to calculate similarity between two texts
+def calculate_similarity(text1, text2):
+    # Convert both texts to lowercase for better comparison
+    text1 = text1.lower()
+    text2 = text2.lower()
+    
+    # Use SequenceMatcher to get a similarity ratio
+    return SequenceMatcher(None, text1, text2).ratio()
+
+# Function to calculate score based on word count and prompt similarity
+def calculate_score(word_count, prompt_text, speech_text, max_word_count=170):
+    # Base score based on word count (60% of total score)
+    word_count_score = min((word_count / max_word_count) * 100, 60)
+    
+    # Similarity score (40% of total score)
+    similarity_ratio = calculate_similarity(prompt_text, speech_text)
+    similarity_score = similarity_ratio * 100
+    
+    # Total score
+    total_score = word_count_score + similarity_score
+    
+    return round(total_score, 2), round(similarity_ratio * 100, 2)
 
 # Process the audio file
-def process_audio_file(audio_file='recorded_audio.wav'):
+def process_audio_file(audio_file='recorded_audio.wav', prompt_text=""):
     # Split audio into smaller chunks
     chunk_files = split_audio(audio_file)
 
@@ -124,13 +142,14 @@ def process_audio_file(audio_file='recorded_audio.wav'):
     # Count words in the full transcribed text
     full_word_count = len(full_text.split())
 
-    # Calculate score based on word count
-    score = calculate_score(full_word_count)
+    # Calculate score based on word count and similarity to prompt
+    score, similarity_percentage = calculate_score(full_word_count, prompt_text, full_text)
 
     return {
         'transcribed_text': full_text.strip(),
         'full_word_count': full_word_count,
-        'score': score
+        'score': score,
+        'similarity_percentage': similarity_percentage
     }
 
 # Create a HTML template for the home page
@@ -201,15 +220,20 @@ def home():
             
             <h3>Stats:</h3>
             <div id="word-count"></div>
+            <div id="similarity"></div>
             <div id="score"></div>
         </div>
         
         <script>
+            // Store the current question
+            let currentQuestion = document.getElementById('ice-breaker-text').textContent;
+            
             document.getElementById('new-question').addEventListener('click', function() {{
                 fetch('/get_ice_breaker')
                     .then(response => response.json())
                     .then(data => {{
                         document.getElementById('ice-breaker-text').textContent = data.question;
+                        currentQuestion = data.question;
                     }});
             }});
             
@@ -218,7 +242,13 @@ def home():
                 document.getElementById('loading').style.display = 'block';
                 
                 fetch('/start_recording', {{
-                    method: 'POST'
+                    method: 'POST',
+                    headers: {{
+                        'Content-Type': 'application/json'
+                    }},
+                    body: JSON.stringify({{
+                        prompt: currentQuestion
+                    }})
                 }})
                 .then(response => response.json())
                 .then(data => {{
@@ -226,7 +256,8 @@ def home():
                     document.getElementById('results').style.display = 'block';
                     document.getElementById('transcription').textContent = data.transcribed_text;
                     document.getElementById('word-count').textContent = 'Word Count: ' + data.word_count;
-                    document.getElementById('score').textContent = 'Score: ' + data.score.toFixed(2) + '%';
+                    document.getElementById('similarity').textContent = 'Relevance to Topic: ' + data.similarity_percentage.toFixed(2) + '%';
+                    document.getElementById('score').textContent = 'Overall Score: ' + data.score.toFixed(2) + '%';
                     this.disabled = false;
                 }})
                 .catch(error => {{
@@ -249,16 +280,21 @@ def get_ice_breaker():
 # API to start recording and process immediately
 @app.route('/start_recording', methods=['POST'])
 def start_recording():
+    # Get the prompt from the request
+    data = request.get_json()
+    prompt = data.get('prompt', '')
+    
     audio_file = record_audio()
     
     # Process the recorded audio
-    results = process_audio_file(audio_file)
+    results = process_audio_file(audio_file, prompt)
     
     return jsonify({
         'message': 'Recording and processing completed',
         'transcribed_text': results['transcribed_text'],
         'word_count': results['full_word_count'],
-        'score': results['score']
+        'score': results['score'],
+        'similarity_percentage': results['similarity_percentage']
     })
 
 # API to get the recorded audio file
@@ -270,18 +306,23 @@ def get_audio():
     return jsonify({'message': 'No recorded file found'}), 404
 
 # API to process existing audio file
-@app.route('/process_audio', methods=['GET'])
+@app.route('/process_audio', methods=['GET', 'POST'])
 def process_existing_audio():
     audio_file = os.path.join(app.config['UPLOAD_FOLDER'], 'recorded_audio.wav')
     if not os.path.exists(audio_file):
         return jsonify({'message': 'No recorded file found'}), 404
     
-    results = process_audio_file(audio_file)
+    # Get the prompt from the request
+    data = request.get_json()
+    prompt = data.get('prompt', '')
+    
+    results = process_audio_file(audio_file, prompt)
     
     return jsonify({
         'transcribed_text': results['transcribed_text'],
         'word_count': results['full_word_count'],
-        'score': results['score']
+        'score': results['score'],
+        'similarity_percentage': results['similarity_percentage']
     })
 
 if __name__ == '__main__':
