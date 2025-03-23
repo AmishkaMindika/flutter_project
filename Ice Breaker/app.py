@@ -115,11 +115,11 @@ def calculate_similarity(text1, text2):
 # Function to calculate score based on word count and prompt similarity
 def calculate_score(word_count, prompt_text, speech_text, max_word_count=170):
     # Base score based on word count (60% of total score)
-    word_count_score = min((word_count / max_word_count) * 100, 60)
+    word_count_score = min((word_count / max_word_count) * 60, 60)
     
     # Similarity score (40% of total score)
     similarity_ratio = calculate_similarity(prompt_text, speech_text)
-    similarity_score = similarity_ratio * 100
+    similarity_score = similarity_ratio * 40
     
     # Total score
     total_score = word_count_score + similarity_score
