@@ -11,6 +11,8 @@ import math
 from dotenv import load_dotenv
 import random
 from difflib import SequenceMatcher
+import threading
+import time
 
 # Load environment variables
 load_dotenv('api.env')
@@ -22,6 +24,11 @@ app.config['UPLOAD_FOLDER'] = os.path.dirname(os.path.abspath(__file__))
 SAMPLE_RATE = 44100  # 44.1kHz standard sampling rate
 DURATION = 60  # 60 seconds of recording
 CHANNELS = 1  # Mono audio
+
+# Global variable for recording control
+recording_active = False
+recording_thread = None
+audio_data = None
 
 # Ice Breaker questions list
 ICE_BREAKER_QUESTIONS = [
@@ -51,15 +58,30 @@ ICE_BREAKER_QUESTIONS = [
 def get_random_ice_breaker():
     return random.choice(ICE_BREAKER_QUESTIONS)
 
-# Function to record audio
-def record_audio():
+# Function to record audio with stop capability
+def record_audio_thread():
+    global recording_active, audio_data
     print("Recording started...")
-
-    # Record audio for the specified duration
-    audio_data = sd.rec(int(SAMPLE_RATE * DURATION), samplerate=SAMPLE_RATE, channels=CHANNELS, dtype=np.int16)
-    sd.wait()  # Wait for recording to complete
+    
+    # Set up the stream
+    audio_data = np.array([], dtype=np.int16)
+    stream = sd.InputStream(samplerate=SAMPLE_RATE, channels=CHANNELS, dtype=np.int16)
+    stream.start()
+    
+    # Record until stopped or max duration reached
+    start_time = time.time()
+    recording_active = True
+    
+    while recording_active and (time.time() - start_time) < DURATION:
+        buffer, overflowed = stream.read(SAMPLE_RATE)  # Read 1 second of audio
+        audio_data = np.append(audio_data, buffer.flatten())
+    
+    # Stop and close the stream
+    stream.stop()
+    stream.close()
+    recording_active = False
     print("Recording finished.")
-
+    
     # Save as WAV file
     audio_file = os.path.join(app.config['UPLOAD_FOLDER'], 'recorded_audio.wav')
     with wave.open(audio_file, 'wb') as wf:
@@ -67,9 +89,17 @@ def record_audio():
         wf.setsampwidth(2)
         wf.setframerate(SAMPLE_RATE)
         wf.writeframes(audio_data.tobytes())
-
+    
     print(f"Audio saved to {audio_file}")
     return audio_file
+
+# Function to stop recording
+def stop_recording():
+    global recording_active
+    recording_active = False
+    if recording_thread is not None:
+        recording_thread.join()  # Wait for the recording thread to complete
+    return os.path.join(app.config['UPLOAD_FOLDER'], 'recorded_audio.wav')
 
 # Function to split long audio into smaller chunks (max 60 sec each)
 def split_audio(audio_file, chunk_length=60):  # 60 seconds per chunk
@@ -190,6 +220,17 @@ def home():
             button:hover {{
                 background-color: #45a049;
             }}
+            button:disabled {{
+                background-color: #cccccc;
+                cursor: not-allowed;
+            }}
+            .stop-btn {{
+                background-color: #f44336;
+                display: none;
+            }}
+            .stop-btn:hover {{
+                background-color: #d32f2f;
+            }}
             .results {{
                 margin-top: 20px;
                 text-align: left;
@@ -199,6 +240,42 @@ def home():
                 display: none;
                 margin: 20px 0;
             }}
+            .timer-container {{
+                margin: 20px auto;
+                width: 300px;
+                display: none;
+            }}
+            .timer {{
+                font-size: 36px;
+                font-weight: bold;
+                margin-bottom: 10px;
+            }}
+            .timer-bar {{
+                height: 20px;
+                background-color: #f0f8ff;
+                border-radius: 10px;
+                overflow: hidden;
+            }}
+            .timer-progress {{
+                height: 100%;
+                width: 100%;
+                background-color: #4CAF50;
+                transition: width 1s linear;
+            }}
+            .timer-red {{
+                background-color: #FF6347;
+            }}
+            .new-question-btn {{
+                background-color: #2196F3;
+            }}
+            .new-question-btn:hover {{
+                background-color: #0b7dda;
+            }}
+            .button-container {{
+                display: flex;
+                justify-content: center;
+                gap: 10px;
+            }}
         </style>
     </head>
     <body>
@@ -207,11 +284,22 @@ def home():
         <div class="question">
             <p>Please speak about the following topic for up to 60 seconds:</p>
             <p><strong id="ice-breaker-text">{ice_breaker}</strong></p>
-            <button id="new-question">Get New Question</button>
         </div>
         
-        <button id="start-recording">Start Recording</button>
-        <div class="loading" id="loading">Recording in progress... (60 seconds)</div>
+        <div class="button-container">
+            <button id="new-question" class="new-question-btn">Get New Question</button>
+            <button id="start-recording">Start Recording</button>
+            <button id="stop-recording" class="stop-btn">Stop Recording</button>
+        </div>
+        
+        <div class="timer-container" id="timer-container">
+            <div class="timer" id="timer">60</div>
+            <div class="timer-bar">
+                <div class="timer-progress" id="timer-progress"></div>
+            </div>
+        </div>
+        
+        <div class="loading" id="loading">Processing recording...</div>
         
         <div class="results" id="results">
             <h2>Results</h2>
@@ -227,8 +315,19 @@ def home():
         <script>
             // Store the current question
             let currentQuestion = document.getElementById('ice-breaker-text').textContent;
+            let timerInterval;
+            let recordingInProgress = false;
             
-            document.getElementById('new-question').addEventListener('click', function() {{
+            // Get DOM elements
+            const startButton = document.getElementById('start-recording');
+            const stopButton = document.getElementById('stop-recording');
+            const newQuestionButton = document.getElementById('new-question');
+            const timerContainer = document.getElementById('timer-container');
+            const loadingElement = document.getElementById('loading');
+            const resultsElement = document.getElementById('results');
+            
+            // New Question button
+            newQuestionButton.addEventListener('click', function() {{
                 fetch('/get_ice_breaker')
                     .then(response => response.json())
                     .then(data => {{
@@ -237,11 +336,57 @@ def home():
                     }});
             }});
             
-            document.getElementById('start-recording').addEventListener('click', function() {{
-                this.disabled = true;
-                document.getElementById('loading').style.display = 'block';
+            function updateTimer(timeLeft, duration) {{
+                document.getElementById('timer').textContent = timeLeft;
+                const progressBar = document.getElementById('timer-progress');
+                const percentage = (timeLeft / duration) * 100;
+                progressBar.style.width = percentage + '%';
                 
-                fetch('/start_recording', {{
+                // Change color when less than 10 seconds remain
+                if (timeLeft <= 10) {{
+                    progressBar.classList.add('timer-red');
+                }} else {{
+                    progressBar.classList.remove('timer-red');
+                }}
+            }}
+            
+            function startTimer(duration) {{
+                let timeLeft = duration;
+                timerContainer.style.display = 'block';
+                updateTimer(timeLeft, duration);
+                
+                timerInterval = setInterval(function() {{
+                    timeLeft--;
+                    updateTimer(timeLeft, duration);
+                    
+                    if (timeLeft <= 0) {{
+                        clearInterval(timerInterval);
+                        stopRecording();
+                    }}
+                }}, 1000);
+            }}
+            
+            function stopTimerAndReset() {{
+                clearInterval(timerInterval);
+                timerContainer.style.display = 'none';
+            }}
+            
+            function stopRecording() {{
+                if (!recordingInProgress) return;
+                
+                recordingInProgress = false;
+                
+                // Show processing message
+                loadingElement.style.display = 'block';
+                
+                // Hide stop button, show start button
+                stopButton.style.display = 'none';
+                
+                // Stop the timer
+                stopTimerAndReset();
+                
+                // Call the API to stop recording
+                fetch('/stop_recording', {{
                     method: 'POST',
                     headers: {{
                         'Content-Type': 'application/json'
@@ -252,21 +397,60 @@ def home():
                 }})
                 .then(response => response.json())
                 .then(data => {{
-                    document.getElementById('loading').style.display = 'none';
-                    document.getElementById('results').style.display = 'block';
+                    loadingElement.style.display = 'none';
+                    resultsElement.style.display = 'block';
                     document.getElementById('transcription').textContent = data.transcribed_text;
                     document.getElementById('word-count').textContent = 'Word Count: ' + data.word_count;
                     document.getElementById('similarity').textContent = 'Relevance to Topic: ' + data.similarity_percentage.toFixed(2) + '%';
                     document.getElementById('score').textContent = 'Overall Score: ' + data.score.toFixed(2) + '%';
-                    this.disabled = false;
+                    
+                    // Re-enable buttons
+                    startButton.disabled = false;
+                    newQuestionButton.disabled = false;
                 }})
                 .catch(error => {{
                     console.error('Error:', error);
-                    document.getElementById('loading').style.display = 'none';
+                    loadingElement.style.display = 'none';
                     alert('An error occurred during recording. Please try again.');
-                    this.disabled = false;
+                    
+                    // Re-enable buttons
+                    startButton.disabled = false;
+                    newQuestionButton.disabled = false;
+                }});
+            }}
+            
+            // Start Recording button
+            startButton.addEventListener('click', function() {{
+                // Disable start and new question buttons
+                this.disabled = true;
+                newQuestionButton.disabled = true;
+                
+                // Show stop button
+                stopButton.style.display = 'inline-block';
+                
+                // Hide results and show timer
+                resultsElement.style.display = 'none';
+                
+                // Set recording in progress flag
+                recordingInProgress = true;
+                
+                // Start the timer countdown
+                startTimer(DURATION);
+                
+                // Start recording
+                fetch('/start_recording', {{
+                    method: 'POST',
+                    headers: {{
+                        'Content-Type': 'application/json'
+                    }}
                 }});
             }});
+            
+            // Stop Recording button
+            stopButton.addEventListener('click', stopRecording);
+            
+            // Set the global duration for JavaScript
+            const DURATION = {DURATION};
         </script>
     </body>
     </html>
@@ -277,14 +461,26 @@ def home():
 def get_ice_breaker():
     return jsonify({'question': get_random_ice_breaker()})
 
-# API to start recording and process immediately
+# API to start recording
 @app.route('/start_recording', methods=['POST'])
 def start_recording():
+    global recording_thread
+    
+    # Start the recording in a separate thread
+    recording_thread = threading.Thread(target=record_audio_thread)
+    recording_thread.start()
+    
+    return jsonify({'message': 'Recording started'})
+
+# API to stop recording and process
+@app.route('/stop_recording', methods=['POST'])
+def stop_recording_api():
     # Get the prompt from the request
     data = request.get_json()
     prompt = data.get('prompt', '')
     
-    audio_file = record_audio()
+    # Stop the recording
+    audio_file = stop_recording()
     
     # Process the recorded audio
     results = process_audio_file(audio_file, prompt)
