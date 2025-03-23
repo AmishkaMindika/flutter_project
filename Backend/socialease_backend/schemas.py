@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 
 # Notification Settings Schema
@@ -8,13 +8,13 @@ class NotificationSettingsSchema(BaseModel):
     push_notifications: Optional[bool] = True
 
     class Config:
-        orm_mode = True
+        from_attributes = True  # Updated from orm_mode to from_attributes
 
 # Progress Schema
 class ProgressSchema(BaseModel):
-    user_id: int
-    day: str
-    score: int
+    user_id: str = Field(..., description="User ID must be a string")  # Changed to string
+    day: int = Field(..., description="Day must be a valid integer starting from 1")  # Changed to int
+    score: int = Field(..., description="Score must be an integer")
 
     class Config:
-        orm_mode = True
+        from_attributes = True  # Updated from orm_mode to from_attributes

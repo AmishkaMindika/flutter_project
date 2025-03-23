@@ -1,15 +1,17 @@
-from sqlalchemy.orm import Session
-from models import NotificationSettings
 from schemas import NotificationSettingsSchema
 
-def get_settings(db: Session, user_id: int):
-    return db.query(NotificationSettings).filter(NotificationSettings.user_id == user_id).first()
+def get_settings(db, user_id: int):
+    return db["notification_settings"].find_one({"user_id": user_id})  # Query MongoDB collection
 
-def update_settings(db: Session, user_id: int, settings: NotificationSettingsSchema):
-    db_settings = db.query(NotificationSettings).filter(NotificationSettings.user_id == user_id).first()
-    if db_settings:
-        db_settings.email_notifications = settings.email_notifications
-        db_settings.push_notifications = settings.push_notifications
-        db.commit()
-        return db_settings
+def update_settings(db, user_id: int, settings: NotificationSettingsSchema):
+    result = db["notification_settings"].update_one(
+        {"user_id": user_id},  # Filter by user_id
+        {"$set": {
+            "email_notifications": settings.email_notifications,
+            "push_notifications": settings.push_notifications
+        }},
+        upsert=True  # Insert if not found
+    )
+    if result.matched_count > 0 or result.upserted_id:
+        return db["notification_settings"].find_one({"user_id": user_id})  # Return updated document
     return None
