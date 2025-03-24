@@ -100,7 +100,7 @@ class ProgressChartState extends State<ProgressChart> {
     );
   }
 
-  LineChart(lineChartData) {}
+
 }
 
 
