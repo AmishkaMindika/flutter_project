@@ -1,25 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
-from database import get_db
-from models import NotificationSettings
-from schemas import NotificationSettingsSchema
+from fastapi import APIRouter, Depends
+from socialease_backend.database import get_db
+from socialease_backend.services.settings_services import get_settings, update_settings
+from socialease_backend.schemas import NotificationSettingsSchema
 
 router = APIRouter()
 
-@router.get("/settings/{user_id}", response_model=NotificationSettingsSchema)
-def get_settings(user_id: int, db: Session = Depends(get_db)):
-    settings = db.query(NotificationSettings).filter(NotificationSettings.user_id == user_id).first()
-    if not settings:
-        raise HTTPException(status_code=404, detail="Settings not found")
-    return settings
+@router.get("/settings/{user_id}")
+def read_settings(user_id: int, db=Depends(get_db)):
+    return get_settings(db, user_id)
 
 @router.put("/settings/{user_id}")
-def update_settings(user_id: int, settings: NotificationSettingsSchema, db: Session = Depends(get_db)):
-    db_settings = db.query(NotificationSettings).filter(NotificationSettings.user_id == user_id).first()
-    if not db_settings:
-        raise HTTPException(status_code=404, detail="Settings not found")
-    
-    db_settings.email_notifications = settings.email_notifications
-    db_settings.push_notifications = settings.push_notifications
-    db.commit()
-    return {"message": "Settings updated"}
+def modify_settings(user_id: int, settings: NotificationSettingsSchema, db=Depends(get_db)):
+    return update_settings(db, user_id, settings)
