@@ -100,7 +100,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         ),
         centerTitle: true,
-
         backgroundColor: Colors.green.shade200,
         actions: [
           IconButton(
@@ -134,8 +133,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
               labelText: 'New Password',
               obscureText: true,
             ),
-
-
           ],
         ),
       ),

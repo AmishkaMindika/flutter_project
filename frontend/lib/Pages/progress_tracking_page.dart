@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-
-
 import '../style/colour.dart';
 import '../style/progress_chart.dart';
 

@@ -53,7 +53,7 @@ class IceBreakerScreen extends StatelessWidget {
                 );
               },
               child: Text(
-                'Voice Practice',
+                'Tap to Continiue',
                 style: TextStyle(fontSize: 18, color: Colors.black),
               ),
               style: ElevatedButton.styleFrom(

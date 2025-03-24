@@ -84,10 +84,22 @@ class _HomePageState extends State<HomePage> {
                 children: [
                   Align(
                     alignment: Alignment.topRight,
-                    child: CircleAvatar(
-                      backgroundColor: AppColors.green_3,
-                      radius: 30,
-                      child: Icon(Icons.account_circle_outlined, size: 50, color: AppColors.textMain),
+                    child: GestureDetector(
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => ProfileScreen(user: widget.user),
+                          ),
+                        ).then((_) {
+                          setState(() {});
+                        });
+                      },
+                      child: CircleAvatar(
+                        backgroundColor: AppColors.green_3,
+                        radius: 30,
+                        child: Icon(Icons.account_circle_outlined, size: 50, color: AppColors.textMain),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 10),
@@ -146,7 +158,7 @@ class _HomePageState extends State<HomePage> {
   Widget buildIceBreakerCard(BuildContext context) {
     return Container(
       width: MediaQuery.of(context).size.width,
-      height: 200,
+      height: 220,
       decoration: BoxDecoration(
         gradient: LinearGradient(colors: [AppColors.green_1, AppColors.green_3]),
         borderRadius: const BorderRadius.only(
