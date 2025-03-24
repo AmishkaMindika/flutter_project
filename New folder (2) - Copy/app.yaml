@@ -1,0 +1,15 @@
+runtime: python310
+entrypoint: gunicorn -b :$PORT main:app
+
+instance_class: F2  # Choose a lightweight instance type
+automatic_scaling:
+  target_cpu_utilization: 0.65
+  min_instances: 1
+  max_instances: 5
+
+env_variables:
+  GEMINI_API_KEY: "AIzaSyDubSOYVgXUOHR_b-IsEJTNSs1SOI6vZns"
+
+handlers:
+- url: /.*
+  script: auto
